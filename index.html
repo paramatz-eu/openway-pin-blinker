@@ -25,6 +25,7 @@
   --lcd-bg:#aeb49c; --lcd-fg:#1a1f15; --lcd-dim:#868c75; color-scheme:dark }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font-ui);
   padding:max(12px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
@@ -89,7 +90,15 @@ details summary{cursor:pointer;font-weight:600}
 .note{font-size:.85rem;color:var(--muted)}
 .note b{color:var(--fg)}
 #log{font-family:var(--font-lcd);font-size:.75rem;color:var(--muted);max-height:9em;overflow:auto;white-space:pre-wrap;margin:0}
-video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+#vid{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.preview{border-radius:10px;overflow:hidden;background:#000;border:1px solid var(--line)}
+.preview canvas,#recVideo{display:block;width:100%;height:auto;max-width:100%;background:#000;border-radius:8px}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px}
+.btnrow button{flex:1 1 140px}
+#linkOut{font-family:var(--font-lcd);font-size:.8rem}
+code{font-family:var(--font-lcd);font-size:.85em;background:var(--bg);padding:1px 4px;border-radius:4px}
+.params{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.85rem;margin:0}
+.params dt{font-family:var(--font-lcd)} .params dd{margin:0;color:var(--muted)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -117,6 +126,19 @@ video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
   </div>
   <button class="stop" id="stopBtn" hidden>Abbrechen</button>
 
+  <div class="preview" id="previewWrap" hidden><canvas id="preview" width="1280" height="720"></canvas></div>
+
+  <section class="card" id="recCard" hidden>
+    <span class="label">Debug-Video</span>
+    <video id="recVideo" controls playsinline></video>
+    <div class="btnrow">
+      <button id="recSave" type="button">Video speichern</button>
+      <button id="recShare" type="button">Video teilen</button>
+      <button id="logShare" type="button">Protokoll kopieren</button>
+    </div>
+    <small class="note" id="recInfo"></small>
+  </section>
+
   <section class="card">
     <div class="row">
       <label class="label" for="pin">Zähler-PIN</label>
@@ -132,6 +154,7 @@ video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
     <label class="check"><input type="checkbox" id="optInf" checked><span>„Inf On“ setzen<small>erweiterter Datensatz mit Momentanleistung für den IR-Lesekopf</small></span></label>
     <label class="check"><input type="checkbox" id="optPinOff" checked><span>PIN-Schutz ausschalten<small>Werte danach ohne PIN abrufbar</small></span></label>
     <label class="check"><input type="checkbox" id="optRemember" checked><span>PIN auf diesem Gerät merken</span></label>
+    <label class="check"><input type="checkbox" id="optVideo"><span>Debug-Video aufnehmen<small>Rückkamera filmt den Zähler, eingeblendet werden Zeit, Schritt, erwartete Anzeige und Lampenzustand</small></span></label>
   </section>
 
   <section class="card">
@@ -159,6 +182,25 @@ video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
     <button id="resetBtn" type="button">Standardwerte</button>
   </details>
 
+  <details class="card" id="linkCard">
+    <summary>Link mit Einstellungen</summary>
+    <p class="note">Alle Einstellungen lassen sich per Link übergeben, z. B. als Lesezeichen oder Startbildschirm-Verknüpfung. Werte im Link überschreiben die gespeicherten.</p>
+    <dl class="params">
+      <dt>pin</dt><dd>vierstellige PIN, z. B. <code>pin=1234</code></dd>
+      <dt>typ</dt><dd><code>e</code> Einrichtung (8) · <code>z</code> Zweirichtung (13)</dd>
+      <dt>inf</dt><dd><code>1</code>/<code>0</code> „Inf On“ setzen</dd>
+      <dt>pinoff</dt><dd><code>1</code>/<code>0</code> PIN-Schutz ausschalten</dd>
+      <dt>video</dt><dd><code>1</code>/<code>0</code> Debug-Video aufnehmen</dd>
+      <dt>start</dt><dd><code>1</code> startet nach dem Countdown automatisch (einmal pro Tab)</dd>
+      <dt>on, off, digit, long, wake, count</dt><dd>Zeiten in ms, Countdown in s</dd>
+    </dl>
+    <input type="text" id="linkOut" readonly aria-label="Link">
+    <div class="btnrow">
+      <button id="linkCopy" type="button">Link kopieren</button>
+      <button id="linkCopyStart" type="button">Link mit Autostart kopieren</button>
+    </div>
+  </details>
+
   <details class="card">
     <summary>Protokoll</summary>
     <pre id="log"></pre>
@@ -179,6 +221,7 @@ function save(){
   const s = {
     type: document.querySelector('input[name=type]:checked')?.value || '',
     inf: $('optInf').checked, pinOff: $('optPinOff').checked, remember: $('optRemember').checked,
+    video: $('optVideo').checked,
     pin: $('optRemember').checked ? $('pin').value : '',
     deviceId: state.deviceId || ''
   };
@@ -195,7 +238,35 @@ if (saved.type) { const r = document.querySelector(`input[name=type][value="${sa
 if (saved.inf === false) $('optInf').checked = false;
 if (saved.pinOff === false) $('optPinOff').checked = false;
 if (saved.remember === false) $('optRemember').checked = false;
+if (saved.video === true) $('optVideo').checked = true;
 state.deviceId = saved.deviceId || '';
+
+// ---------- Parameter aus dem Link ----------
+// ?pin=1234&typ=e|z&inf=1&pinoff=1&video=1&start=1&on=400&off=600&digit=4000&long=6500&wake=2000&count=5
+const PARAM_TIMES = {on:'tOn', off:'tOff', digit:'tDigit', long:'tLong', wake:'tWake', count:'tCount'};
+const params = new URLSearchParams(location.search + (location.hash.includes('=') ? '&' + location.hash.slice(1) : ''));
+const bool = v => /^(1|true|ja|yes|on)$/i.test(v);
+let autoStart = false;
+(function applyParams(){
+  const used = [];
+  const p = params.get('pin');
+  if (p !== null){ if (/^\d{4}$/.test(p)){ $('pin').value = p; used.push('PIN'); } else log('Link: „pin“ ungültig, erwartet 4 Ziffern'); }
+  const t = (params.get('typ') || params.get('type') || '').toLowerCase();
+  if (t){
+    const v = /^(e|ein|einrichtung|einweg|1|8)$/.test(t) ? '8' : /^(z|zwei|zweirichtung|2|13)$/.test(t) ? '13' : '';
+    if (v){ document.querySelector(`input[name=type][value="${v}"]`).checked = true; used.push(v === '8' ? 'Einrichtung' : 'Zweirichtung'); }
+    else log('Link: „typ“ ungültig, erwartet e oder z');
+  }
+  if (params.has('inf')){ $('optInf').checked = bool(params.get('inf')); used.push('inf'); }
+  if (params.has('pinoff')){ $('optPinOff').checked = bool(params.get('pinoff')); used.push('pinoff'); }
+  if (params.has('video')){ $('optVideo').checked = bool(params.get('video')); used.push('video'); }
+  for (const [k, id] of Object.entries(PARAM_TIMES)){
+    const v = parseInt(params.get(k), 10);
+    if (Number.isFinite(v)){ $(id).value = v; used.push(k); }
+  }
+  autoStart = bool(params.get('start') || '');
+  if (used.length){ log('Aus Link übernommen: ' + used.join(', ')); save(); }
+})();
 
 // ---------- Sequenz ----------
 // Schritt: {k:'pulse'|'long'|'wait', ms, gap, phase, expect}
@@ -284,7 +355,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 function log(msg){ const el = $('log'); el.textContent += new Date().toLocaleTimeString() + '  ' + msg + '\n'; el.scrollTop = el.scrollHeight; }
 
 async function tryDevice(constraints){
-  const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:constraints});
+  const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:{...constraints, width:{ideal:1280}, height:{ideal:720}}});
   const track = stream.getVideoTracks()[0];
   const vid = $('vid'); vid.srcObject = stream; try{ await vid.play(); }catch{}
   await sleep(400);
@@ -317,8 +388,113 @@ async function torch(on){
   const dt = performance.now() - t0;
   latSum += dt; latN++;
   const lamp = $('lamp'); lamp.classList.toggle('on', on); lamp.textContent = on ? 'AN' : 'AUS';
+  ov.torch = on;
+  if (state.tRun) state.edges.push(`${((t0 - state.tRun)/1000).toFixed(3).padStart(8)} s  ${on ? 'AN ' : 'AUS'}  +${Math.round(dt)} ms  ${ov.phase}  → ${ov.expect}`);
   return dt;
 }
+
+// ---------- Debug-Video ----------
+const ov = {phase:'', expect:'', step:'', torch:false};
+const rec = {recorder:null, chunks:[], raf:0, mime:'', blob:null, url:'', ext:'webm'};
+function pickMime(){
+  if (!window.MediaRecorder) return '';
+  for (const m of ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'])
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+function drawFrame(){
+  const cv = $('preview'), ctx = cv.getContext('2d'), v = $('vid');
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+  if (v.videoWidth) ctx.drawImage(v, 0, 0, W, H);
+  // Fadenkreuz zum Ausrichten
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(W/2-30,H/2); ctx.lineTo(W/2+30,H/2); ctx.moveTo(W/2,H/2-30); ctx.lineTo(W/2,H/2+30); ctx.stroke();
+  // Einblendung
+  const bar = Math.round(H*0.2);
+  ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(0,0,W,bar);
+  const fs = Math.round(bar*0.3);
+  ctx.font = `600 ${fs}px ui-monospace,monospace`; ctx.fillStyle = '#fff'; ctx.textBaseline = 'top';
+  const t = state.tRun ? ((performance.now() - state.tRun)/1000).toFixed(2) + ' s' : 'Countdown';
+  ctx.fillText(`${t}   ${ov.step}`, fs*0.6, fs*0.4);
+  ctx.fillStyle = '#ffd27a';
+  ctx.fillText(`${ov.phase}  →  ${ov.expect}`, fs*0.6, fs*1.6);
+  // Lampenzustand
+  const r = bar*0.32, cx = W - r - fs*0.6, cy = bar/2;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.fillStyle = ov.torch ? '#ffb020' : '#333'; ctx.fill();
+  ctx.fillStyle = ov.torch ? '#1b1200' : '#aaa'; ctx.font = `700 ${Math.round(r*0.6)}px system-ui,sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ov.torch ? 'AN' : 'AUS', cx, cy); ctx.textAlign = 'start';
+  rec.raf = requestAnimationFrame(drawFrame);
+}
+function startPreview(){
+  const v = $('vid'), cv = $('preview');
+  const w = v.videoWidth || 1280, h = v.videoHeight || 720, s = Math.min(1, 1280 / Math.max(w, h));
+  cv.width = Math.round(w*s); cv.height = Math.round(h*s);
+  $('previewWrap').hidden = false;
+  cancelAnimationFrame(rec.raf); drawFrame();
+}
+function startRecording(){
+  rec.mime = pickMime();
+  if (!rec.mime){ log('Video: MediaRecorder wird nicht unterstützt'); return false; }
+  if (rec.url) URL.revokeObjectURL(rec.url);
+  rec.chunks = []; rec.blob = null; rec.url = '';
+  rec.ext = rec.mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+  const stream = $('preview').captureStream(30);
+  rec.recorder = new MediaRecorder(stream, {mimeType: rec.mime, videoBitsPerSecond: 3_000_000});
+  rec.recorder.ondataavailable = e => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+  rec.recorder.start(1000);
+  log('Video-Aufnahme läuft (' + rec.mime + ')');
+  return true;
+}
+function stopRecording(){
+  cancelAnimationFrame(rec.raf);
+  $('previewWrap').hidden = true;
+  const r = rec.recorder; rec.recorder = null;
+  if (!r || r.state === 'inactive') return Promise.resolve(null);
+  return new Promise(res => {
+    r.onstop = () => {
+      rec.blob = new Blob(rec.chunks, {type: rec.mime.split(';')[0]});
+      rec.url = URL.createObjectURL(rec.blob);
+      res(rec.blob);
+    };
+    r.stop();
+  });
+}
+function fileName(ext){
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  return `openway-debug-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
+}
+function showRecording(){
+  if (!rec.blob) return;
+  $('recVideo').src = rec.url;
+  $('recInfo').textContent = `${(rec.blob.size/1048576).toFixed(1)} MB · ${rec.ext.toUpperCase()}. Das Video bleibt nur bis zum Neuladen der Seite erhalten.`;
+  $('recShare').hidden = !(navigator.canShare && navigator.canShare({files:[new File([rec.blob], fileName(rec.ext), {type: rec.blob.type})]}));
+  $('recCard').hidden = false;
+}
+function edgeLog(){
+  return ['OpenWay PIN-Blinker – Schaltprotokoll', new Date().toString(),
+    `Zeiten: on ${num('tOn')} / off ${num('tOff')} / digit ${num('tDigit')} / long ${num('tLong')} / wake ${num('tWake')} ms`,
+    `Typ: ${document.querySelector('input[name=type]:checked')?.value || '-'} · inf ${$('optInf').checked} · pinoff ${$('optPinOff').checked}`,
+    '    Zeit    Lampe  Latenz  Schritt → erwartete Anzeige', ...state.edges].join('\n');
+}
+$('recSave').addEventListener('click', () => {
+  if (!rec.blob) return;
+  const a = document.createElement('a'); a.href = rec.url; a.download = fileName(rec.ext);
+  document.body.append(a); a.click(); a.remove();
+});
+$('recShare').addEventListener('click', async () => {
+  if (!rec.blob) return;
+  try{
+    await navigator.share({files:[new File([rec.blob], fileName(rec.ext), {type: rec.blob.type}),
+                                  new File([edgeLog()], fileName('txt'), {type:'text/plain'})],
+                           title:'OpenWay Debug-Video'});
+  }catch(e){ if (e.name !== 'AbortError') setStatus('Teilen nicht möglich: ' + e.message, 'err'); }
+});
+$('logShare').addEventListener('click', async () => {
+  try{ await navigator.clipboard.writeText(edgeLog()); setStatus('Schaltprotokoll kopiert.', 'ok'); }
+  catch{ $('log').textContent = edgeLog(); setStatus('Kopieren nicht möglich, Protokoll steht unten unter „Protokoll“.', 'err'); }
+});
 function releaseTorch(){
   try{ state.track && state.track.applyConstraints({advanced:[{torch:false}]}); }catch{}
   if (state.stream) state.stream.getTracks().forEach(t => t.stop());
@@ -372,12 +548,16 @@ async function run(){
   save();
   const seq = buildSequence();
   state.running = true; state.abort = false; latSum = 0; latN = 0;
-  $('startBtn').hidden = true; $('testBtn').hidden = true; $('stopBtn').hidden = false;
+  state.tRun = 0; state.edges = [];
+  Object.assign(ov, {phase:'Countdown', expect:'Display dunkel', step:'', torch:false});
+  $('startBtn').hidden = true; $('testBtn').hidden = true; $('stopBtn').hidden = false; $('recCard').hidden = true;
+  const withVideo = $('optVideo').checked;
   try{
     beep(1, 0.01); // AudioContext im Klick entsperren
     setStatus('Kamera wird geöffnet …');
     await acquireTorch();
     await wakeOn();
+    if (withVideo){ startPreview(); startRecording(); }
     const total = seqDuration(seq);
     // Countdown zum Ansetzen
     for (let c = num('tCount'); c > 0; c--){
@@ -386,10 +566,11 @@ async function run(){
       beep(660); vibrate(60); await sleep(1000);
     }
     beep(1320, 0.15); vibrate(200);
-    let t = performance.now(); const tStart = t;
+    let t = performance.now(); const tStart = t; state.tRun = t;
     for (let i = 0; i < seq.length; i++){
       const s = seq[i];
       markPhase(s.phase);
+      Object.assign(ov, {phase: s.phase + (s.k === 'long' ? ' (lang)' : ''), expect: s.expect, step: `Schritt ${i+1}/${seq.length}`});
       setStatus(s.phase + (s.k === 'long' ? ' · lang halten' : s.k === 'wait' ? ' · warten' : ''));
       $('metaRight').textContent = `Schritt ${i+1}/${seq.length}`;
       if (s.k === 'wait'){ lcd(s.expect, s.phase, 'Ziffer 0'); await until(t + s.ms); t += s.ms; }
@@ -403,19 +584,23 @@ async function run(){
       $('bar').style.width = (100 * (performance.now() - tStart) / total).toFixed(1) + '%';
     }
     await until(t);
+    Object.assign(ov, {phase:'Fertig', expect: $('optInf').checked ? 'Inf On' : '–', step:''});
+    if (withVideo) await sleep(1500); // Display nach dem letzten Schritt noch kurz filmen
     $('bar').style.width = '100%';
     markPhase('__fertig__');
     const lat = latN ? Math.round(latSum/latN) : 0;
     log(`Fertig. Mittlere Schaltlatenz der Lampe: ${lat} ms`);
     const what = [$('optInf').checked && '„Inf On“', $('optPinOff').checked && '„Pin OFF“'].filter(Boolean).join(' und ');
-    setStatus(what ? `Fertig. Display bzw. Lesekopf prüfen: ${what} sollte gesetzt sein.` : 'PIN eingegeben. Werte jetzt per optischer Taste abrufbar.', 'ok');
+    setStatus(what ? `Fertig. Display bzw. Lesekopf prüfen: ${what} ${what.includes(" und ") ? "sollten" : "sollte"} gesetzt sein.` : 'PIN eingegeben. Werte jetzt per optischer Taste abrufbar.', 'ok');
     beep(990, .12); setTimeout(()=>beep(1320,.18),160); vibrate([100,80,100]);
   }catch(e){
     if (e.message === 'abort'){ setStatus('Abgebrochen. Mindestens 2 Minuten warten, bis das Display aus ist, dann neu starten.', 'err'); log('Abgebrochen'); }
     else { setStatus(e.message || String(e), 'err'); log('Fehler: ' + (e.message || e)); }
   }finally{
+    if (withVideo){ await stopRecording(); showRecording(); }
     releaseTorch(); wakeOff();
-    state.running = false;
+    state.running = false; state.tRun = 0;
+    if (state.edges.length) $('log').textContent += edgeLog() + '\n';
     $('startBtn').hidden = false; $('testBtn').hidden = false; $('stopBtn').hidden = true;
     renderPlan();
   }
@@ -449,7 +634,45 @@ $('resetBtn').addEventListener('click', () => { for (const k in DEFAULTS) $(k).v
 $('pin').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g,'').slice(0,4); save(); renderPlan(); });
 document.querySelectorAll('input').forEach(el => { if (el.id !== 'pin') el.addEventListener('change', () => { save(); renderPlan(); }); });
 
+// ---------- Link erzeugen ----------
+function buildLink(withStart){
+  const q = new URLSearchParams();
+  if (/^\d{4}$/.test($('pin').value)) q.set('pin', $('pin').value);
+  const ty = document.querySelector('input[name=type]:checked')?.value;
+  if (ty) q.set('typ', ty === '8' ? 'e' : 'z');
+  q.set('inf', $('optInf').checked ? '1' : '0');
+  q.set('pinoff', $('optPinOff').checked ? '1' : '0');
+  if ($('optVideo').checked) q.set('video', '1');
+  for (const [k, id] of Object.entries(PARAM_TIMES)) if (num(id) !== DEFAULTS[id]) q.set(k, num(id));
+  if (withStart) q.set('start', '1');
+  return location.origin + location.pathname + '?' + q.toString();
+}
+function updateLink(){ $('linkOut').value = buildLink(false); }
+async function copyLink(withStart){
+  const url = buildLink(withStart);
+  $('linkOut').value = url;
+  try{ await navigator.clipboard.writeText(url); setStatus('Link kopiert.', 'ok'); }
+  catch{ $('linkOut').select(); setStatus('Link markiert, bitte manuell kopieren.'); }
+}
+$('linkCopy').addEventListener('click', () => copyLink(false));
+$('linkCopyStart').addEventListener('click', () => copyLink(true));
+document.addEventListener('input', updateLink); document.addEventListener('change', updateLink);
+updateLink();
+
 renderPlan();
+
+// Autostart: höchstens einmal pro Tab, damit ein Neuladen die Umschaltungen nicht rückgängig macht
+if (autoStart){
+  const key = 'openwayBlinker.autoran:' + location.search;
+  let ran = false; try{ ran = sessionStorage.getItem(key) === '1'; }catch{}
+  if (ran) setStatus('Autostart übersprungen: lief in diesem Tab bereits. Bei Bedarf „Start“ tippen.');
+  else if (!valid().ok) setStatus('Autostart nicht möglich: PIN oder Zählertyp fehlt im Link.', 'err');
+  else {
+    try{ sessionStorage.setItem(key, '1'); }catch{}
+    if (num('tCount') < 5) $('tCount').value = 5;
+    setTimeout(run, 300);
+  }
+}
 log(window.isSecureContext ? 'Sichere Verbindung: Kamera nutzbar.' : 'Achtung: keine HTTPS-Verbindung – Taschenlampe nicht steuerbar.');
 })();
 </script>
