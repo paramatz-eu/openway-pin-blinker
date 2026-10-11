@@ -141,19 +141,26 @@ code{font-family:var(--font-lcd);font-size:.85em;background:var(--bg);padding:1p
 
   <section class="card">
     <div class="row">
+      <span class="label">Modus</span>
+      <div class="seg">
+        <label><input type="radio" name="mode" id="modePin" value="pin" checked><b>Mit PIN-Eingabe</b><span>PIN-Schutz ist aktiv, Display zeigt ohne PIN keine Werte</span></label>
+        <label><input type="radio" name="mode" id="modeNoPin" value="ohnepin"><b>Ohne PIN</b><span>PIN-Schutz ist schon aus, Momentanleistung wird angezeigt</span></label>
+      </div>
+    </div>
+    <div class="row" id="pinRow">
       <label class="label" for="pin">Zähler-PIN</label>
       <input id="pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="0000">
     </div>
     <div class="row">
       <span class="label">Zählertyp (Symbol auf dem Zähler)</span>
       <div class="seg">
-        <label><input type="radio" name="type" id="typeE" value="8"><b>Einrichtung</b><span>nur Bezug · 8 Schritte bis „Inf“</span></label>
-        <label><input type="radio" name="type" id="typeZ" value="13"><b>Zweirichtung</b><span>Bezug + Einspeisung (PV) · 13 Schritte</span></label>
+        <label><input type="radio" name="type" id="typeE" value="8"><b>Einrichtung</b><span>nur Bezug · <span id="stepsE">8</span> Schritte bis „Inf“</span></label>
+        <label><input type="radio" name="type" id="typeZ" value="13"><b>Zweirichtung</b><span>Bezug + Einspeisung (PV) · <span id="stepsZ">13</span> Schritte</span></label>
       </div>
     </div>
-    <label class="check"><input type="checkbox" id="optInf" checked><span>„Inf On“ setzen<small>erweiterter Datensatz mit Momentanleistung für den IR-Lesekopf</small></span></label>
-    <label class="check"><input type="checkbox" id="optPinOff" checked><span>PIN-Schutz ausschalten<small>Werte danach ohne PIN abrufbar</small></span></label>
-    <label class="check"><input type="checkbox" id="optRemember" checked><span>PIN auf diesem Gerät merken</span></label>
+    <label class="check"><input type="checkbox" id="optInf" checked><span><span id="infLabel">„Inf On“ setzen</span><small>erweiterter Datensatz mit Momentanleistung für den IR-Lesekopf</small></span></label>
+    <label class="check"><input type="checkbox" id="optPinOff" checked><span><span id="pinLabel">PIN-Schutz ausschalten</span><small id="pinHint">Werte danach ohne PIN abrufbar</small></span></label>
+    <label class="check" id="rememberRow"><input type="checkbox" id="optRemember" checked><span>PIN auf diesem Gerät merken</span></label>
     <label class="check"><input type="checkbox" id="optVideo"><span>Debug-Video aufnehmen<small>Rückkamera filmt den Zähler, eingeblendet werden Zeit, Schritt, erwartete Anzeige und Lampenzustand</small></span></label>
   </section>
 
@@ -165,7 +172,7 @@ code{font-family:var(--font-lcd);font-size:.85em;background:var(--bg);padding:1p
   <section class="card note">
     <div><b>Vor dem Start:</b> Das Zählerdisplay muss im Ruhezustand sein, also ohne Hintergrundbeleuchtung (mindestens 2 Minuten nicht bedient). Sonst verschiebt sich die ganze Sequenz um einen Schritt.</div>
     <div><b>Halten:</b> Blitz-LED (neben der Kamera) mit 1–2 cm Abstand vor die optische Taste oben rechts halten und nicht bewegen. Ein kurzes Stück Papprohr hilft beim Ausrichten und schirmt Umgebungslicht ab. Bildschirm nicht sperren und die App nicht verlassen.</div>
-    <div><b>Nur einmal ausführen:</b> Die langen Impulse <i>schalten um</i>. Ein zweiter Durchlauf würde „Inf“ wieder ausschalten. Bei ausgeschaltetem PIN-Schutz stimmt die Sequenz außerdem nicht mehr. Nur „PIN eingeben“ geht dann über das Abwählen beider Optionen.</div>
+    <div><b>Nur einmal ausführen:</b> Die langen Impulse <i>schalten um</i>. Ein zweiter Durchlauf würde „Inf“ wieder ausschalten. Ist der PIN-Schutz schon aus, Modus „Ohne PIN“ wählen. Dort springt der Ablauf direkt zu „Inf“ bzw. „Pin“ und schaltet nur diese Punkte um, z. B. auch den PIN-Schutz wieder ein.</div>
   </section>
 
   <details class="card">
@@ -177,6 +184,7 @@ code{font-family:var(--font-lcd);font-size:.85em;background:var(--bg);padding:1p
       <label>Langer Impuls (ms, &gt; 5000)<input type="number" id="tLong" min="5200" max="10000" step="100"></label>
       <label>Pause nach Aufwecken (ms)<input type="number" id="tWake" min="500" max="5000" step="100"></label>
       <label>Countdown vor Start (s)<input type="number" id="tCount" min="0" max="15" step="1"></label>
+      <label>Schritte bis „Inf“ (leer = automatisch)<input type="number" id="steps" min="1" max="40" step="1"></label>
     </div>
     <p class="note">Bleibt eine Ziffer „hängen“ oder zählt sie zu wenig, „Blitz kurz“ und „Pause zwischen Blitzen“ erhöhen (z. B. 500/800). Die Lampe hat je nach Handy 50–200 ms Verzögerung, gemessen wird unten im Protokoll.</p>
     <button id="resetBtn" type="button">Standardwerte</button>
@@ -188,8 +196,10 @@ code{font-family:var(--font-lcd);font-size:.85em;background:var(--bg);padding:1p
     <dl class="params">
       <dt>pin</dt><dd>vierstellige PIN, z. B. <code>pin=1234</code></dd>
       <dt>typ</dt><dd><code>e</code> Einrichtung (8) · <code>z</code> Zweirichtung (13)</dd>
-      <dt>inf</dt><dd><code>1</code>/<code>0</code> „Inf On“ setzen</dd>
-      <dt>pinoff</dt><dd><code>1</code>/<code>0</code> PIN-Schutz ausschalten</dd>
+      <dt>modus</dt><dd><code>pin</code> mit PIN-Eingabe · <code>ohnepin</code> PIN-Schutz ist schon aus</dd>
+      <dt>inf</dt><dd><code>1</code>/<code>0</code> „Inf“ umschalten (aus → an)</dd>
+      <dt>pinoff</dt><dd><code>1</code>/<code>0</code> PIN-Schutz umschalten (mit PIN: an → aus)</dd>
+      <dt>steps</dt><dd>Anzahl kurzer Impulse bis „Inf“, überschreibt die Automatik</dd>
       <dt>video</dt><dd><code>1</code>/<code>0</code> Debug-Video aufnehmen</dd>
       <dt>start</dt><dd><code>1</code> startet nach dem Countdown automatisch (einmal pro Tab)</dd>
       <dt>on, off, digit, long, wake, count</dt><dd>Zeiten in ms, Countdown in s</dd>
@@ -221,13 +231,14 @@ function save(){
   const s = {
     type: document.querySelector('input[name=type]:checked')?.value || '',
     inf: $('optInf').checked, pinOff: $('optPinOff').checked, remember: $('optRemember').checked,
-    video: $('optVideo').checked,
+    video: $('optVideo').checked, mode: mode(), steps: $('steps').value,
     pin: $('optRemember').checked ? $('pin').value : '',
     deviceId: state.deviceId || ''
   };
   for (const k in DEFAULTS) s[k] = num(k);
   try{ localStorage.setItem(LS, JSON.stringify(s)); }catch{}
 }
+function mode(){ return document.querySelector('input[name=mode]:checked')?.value || 'pin'; }
 function num(k){ const v = parseInt($(k).value,10); return Number.isFinite(v) ? v : DEFAULTS[k]; }
 
 const state = { running:false, abort:false, track:null, stream:null, deviceId:'', wake:null, audio:null };
@@ -239,6 +250,8 @@ if (saved.inf === false) $('optInf').checked = false;
 if (saved.pinOff === false) $('optPinOff').checked = false;
 if (saved.remember === false) $('optRemember').checked = false;
 if (saved.video === true) $('optVideo').checked = true;
+if (saved.mode === 'ohnepin') $('modeNoPin').checked = true;
+if (saved.steps) $('steps').value = saved.steps;
 state.deviceId = saved.deviceId || '';
 
 // ---------- Parameter aus dem Link ----------
@@ -257,6 +270,15 @@ let autoStart = false;
     if (v){ document.querySelector(`input[name=type][value="${v}"]`).checked = true; used.push(v === '8' ? 'Einrichtung' : 'Zweirichtung'); }
     else log('Link: „typ“ ungültig, erwartet e oder z');
   }
+  const m = (params.get('modus') || params.get('mode') || '').toLowerCase();
+  if (m){
+    if (/^(ohnepin|nopin|ohne|inf|0)$/.test(m)){ $('modeNoPin').checked = true; used.push('Modus ohne PIN'); }
+    else if (/^(pin|mitpin|mit|1)$/.test(m)){ $('modePin').checked = true; used.push('Modus mit PIN'); }
+    else log('Link: „modus“ ungültig, erwartet pin oder ohnepin');
+  }
+  if (!m && p !== null) $('modePin').checked = true; // Link mit PIN = Modus mit PIN-Eingabe
+  if ((m || t || p !== null) && !params.has('steps')) $('steps').value = ''; // Link legt die Schrittzahl fest
+  if (params.has('steps')){ const v = parseInt(params.get('steps'),10); if (v > 0){ $('steps').value = v; used.push('steps'); } }
   if (params.has('inf')){ $('optInf').checked = bool(params.get('inf')); used.push('inf'); }
   if (params.has('pinoff')){ $('optPinOff').checked = bool(params.get('pinoff')); used.push('pinoff'); }
   if (params.has('video')){ $('optVideo').checked = bool(params.get('video')); used.push('video'); }
@@ -272,13 +294,31 @@ let autoStart = false;
 // Schritt: {k:'pulse'|'long'|'wait', ms, gap, phase, expect}
 function buildSequence(){
   const pin = $('pin').value;
-  const n = parseInt(document.querySelector('input[name=type]:checked')?.value || '0', 10);
   const T = {}; for (const k in DEFAULTS) T[k] = num(k);
   const inf = $('optInf').checked, pinOff = $('optPinOff').checked;
+  const noPin = mode() === 'ohnepin';
   const seq = [];
   const short = (phase, expect, gap = T.tOff) => seq.push({k:'pulse', ms:T.tOn, gap, phase, expect});
   const long  = (phase, expect) => seq.push({k:'long', ms:T.tLong, gap:1500, phase, expect});
 
+  // Ohne PIN zählt der Aufweck-Impuls schon zu den Schritten bis „Inf“ (iometer: 10 bzw. 15)
+  const N = stepsToInf();
+  if (noPin){
+    if (!inf && !pinOff) return seq;
+    const steps = inf ? N : N + 1;
+    for (let i = 1; i <= steps; i++){
+      const exp = i === 1 ? '8888' : i === N ? 'Inf OFF' : i === N + 1 ? 'Pin ?' : `Menü ${i}/${N}`;
+      short(inf ? 'Zu „Inf“' : 'Zu „Pin“', exp, i === 1 ? T.tWake : i === steps ? 1500 : T.tOff);
+    }
+    if (inf){
+      long('Inf umschalten', 'Inf ⇄');
+      if (pinOff) short('Zu „Pin“', 'Pin ?', 1500);
+    }
+    if (pinOff) long('PIN-Schutz umschalten', 'Pin ⇄');
+    short('Abschluss', '…', 500);
+    return seq;
+  }
+  const n = N; // Schritte nach der PIN-Eingabe bis „Inf“
   short('Aufwecken', '8888', T.tWake);
   short('PIN öffnen', 'Pin 0---', 1000);
   for (let i = 0; i < 4; i++){
@@ -306,6 +346,22 @@ function buildSequence(){
   }
   return seq;
 }
+function autoSteps(type, m){ return type === 8 ? (m === 'ohnepin' ? 10 : 8) : type === 13 ? (m === 'ohnepin' ? 15 : 13) : 0; }
+function stepsToInf(){
+  const o = parseInt($('steps').value, 10);
+  if (o > 0) return o;
+  return autoSteps(parseInt(document.querySelector('input[name=type]:checked')?.value || '0', 10), mode());
+}
+function syncModeUi(){
+  const noPin = mode() === 'ohnepin';
+  $('pinRow').hidden = noPin; $('rememberRow').hidden = noPin;
+  $('stepsE').textContent = autoSteps(8, mode()); $('stepsZ').textContent = autoSteps(13, mode());
+  $('infLabel').textContent = noPin ? '„Inf“ umschalten' : '„Inf On“ setzen';
+  $('pinLabel').textContent = noPin ? 'PIN-Schutz umschalten' : 'PIN-Schutz ausschalten';
+  $('pinHint').textContent = noPin ? 'z. B. wieder einschalten. Ist er aus, wird er eingeschaltet.' : 'Werte danach ohne PIN abrufbar';
+  $('steps').placeholder = stepsToInf() || '';
+  if ($('steps').value) $('steps').placeholder = '';
+}
 function seqDuration(seq){ return seq.reduce((a,s)=>a + s.ms + (s.gap||0), 0); }
 function fmt(ms){ const s = Math.round(ms/1000); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')} min`; }
 
@@ -321,18 +377,22 @@ function phasesOf(seq){
   return out;
 }
 function valid(){
-  const pinOk = /^\d{4}$/.test($('pin').value);
-  const typeOk = !!document.querySelector('input[name=type]:checked') || (!$('optInf').checked && !$('optPinOff').checked);
-  return {pinOk, typeOk, ok: pinOk && typeOk};
+  const noPin = mode() === 'ohnepin';
+  const any = $('optInf').checked || $('optPinOff').checked;
+  const pinOk = noPin || /^\d{4}$/.test($('pin').value);
+  const typeOk = stepsToInf() > 0 || !any;
+  const actOk = !noPin || any;
+  return {pinOk, typeOk, actOk, ok: pinOk && typeOk && actOk};
 }
 function renderPlan(){
+  syncModeUi();
   const v = valid();
   const plan = $('plan'); plan.textContent = '';
   if (!v.ok){
     $('metaLeft').textContent = 'Dauer: –';
     const li = document.createElement('li');
     li.innerHTML = '<span></span><span></span><span></span>';
-    li.children[1].textContent = !v.pinOk ? 'Vierstellige PIN eingeben.' : 'Zählertyp wählen.';
+    li.children[1].textContent = !v.pinOk ? 'Vierstellige PIN eingeben.' : !v.actOk ? '„Inf“ und/oder PIN-Schutz auswählen.' : 'Zählertyp wählen.';
     plan.append(li);
     $('startBtn').disabled = true; return;
   }
@@ -475,7 +535,7 @@ function showRecording(){
 function edgeLog(){
   return ['OpenWay PIN-Blinker – Schaltprotokoll', new Date().toString(),
     `Zeiten: on ${num('tOn')} / off ${num('tOff')} / digit ${num('tDigit')} / long ${num('tLong')} / wake ${num('tWake')} ms`,
-    `Typ: ${document.querySelector('input[name=type]:checked')?.value || '-'} · inf ${$('optInf').checked} · pinoff ${$('optPinOff').checked}`,
+    `Modus: ${mode()} · Schritte bis Inf: ${stepsToInf()} · Typ: ${document.querySelector('input[name=type]:checked')?.value || '-'} · inf ${$('optInf').checked} · pinoff ${$('optPinOff').checked}`,
     '    Zeit    Lampe  Latenz  Schritt → erwartete Anzeige', ...state.edges].join('\n');
 }
 $('recSave').addEventListener('click', () => {
@@ -584,13 +644,17 @@ async function run(){
       $('bar').style.width = (100 * (performance.now() - tStart) / total).toFixed(1) + '%';
     }
     await until(t);
-    Object.assign(ov, {phase:'Fertig', expect: $('optInf').checked ? 'Inf On' : '–', step:''});
+    const noPinRun = mode() === 'ohnepin';
+    Object.assign(ov, {phase:'Fertig', expect: $('optInf').checked ? (noPinRun ? 'Inf ⇄' : 'Inf On') : '–', step:''});
     if (withVideo) await sleep(1500); // Display nach dem letzten Schritt noch kurz filmen
     $('bar').style.width = '100%';
     markPhase('__fertig__');
     const lat = latN ? Math.round(latSum/latN) : 0;
     log(`Fertig. Mittlere Schaltlatenz der Lampe: ${lat} ms`);
-    const what = [$('optInf').checked && '„Inf On“', $('optPinOff').checked && '„Pin OFF“'].filter(Boolean).join(' und ');
+    const what = noPinRun
+      ? [$('optInf').checked && '„Inf“', $('optPinOff').checked && 'der PIN-Schutz'].filter(Boolean).join(' und ') + ' umgeschaltet'
+      : [$('optInf').checked && '„Inf On“', $('optPinOff').checked && '„Pin OFF“'].filter(Boolean).join(' und ');
+    if (noPinRun) setStatus(`Fertig: ${what}. Display bzw. Lesekopf prüfen.`, 'ok'); else
     setStatus(what ? `Fertig. Display bzw. Lesekopf prüfen: ${what} ${what.includes(" und ") ? "sollten" : "sollte"} gesetzt sein.` : 'PIN eingegeben. Werte jetzt per optischer Taste abrufbar.', 'ok');
     beep(990, .12); setTimeout(()=>beep(1320,.18),160); vibrate([100,80,100]);
   }catch(e){
@@ -637,12 +701,14 @@ document.querySelectorAll('input').forEach(el => { if (el.id !== 'pin') el.addEv
 // ---------- Link erzeugen ----------
 function buildLink(withStart){
   const q = new URLSearchParams();
-  if (/^\d{4}$/.test($('pin').value)) q.set('pin', $('pin').value);
+  if (mode() === 'ohnepin') q.set('modus', 'ohnepin');
+  else if (/^\d{4}$/.test($('pin').value)) q.set('pin', $('pin').value);
   const ty = document.querySelector('input[name=type]:checked')?.value;
   if (ty) q.set('typ', ty === '8' ? 'e' : 'z');
   q.set('inf', $('optInf').checked ? '1' : '0');
   q.set('pinoff', $('optPinOff').checked ? '1' : '0');
   if ($('optVideo').checked) q.set('video', '1');
+  if (parseInt($('steps').value,10) > 0) q.set('steps', $('steps').value);
   for (const [k, id] of Object.entries(PARAM_TIMES)) if (num(id) !== DEFAULTS[id]) q.set(k, num(id));
   if (withStart) q.set('start', '1');
   return location.origin + location.pathname + '?' + q.toString();
