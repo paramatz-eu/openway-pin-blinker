@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14171c">
+<title>OpenWay PIN-Blinker</title>
+<style>
+/* Layout: eine Spalte, Telefon zuerst. Oben das „Zählerdisplay“, darunter Start, Ablauf, Einstellungen. */
+:root{
+  --bg:#f3f4f2; --surface:#ffffff; --fg:#1b1e22; --muted:#5d636b; --line:#d9dcd8;
+  --accent:#d98a00; --accent-fg:#1b1200; --danger:#b3261e; --ok:#2e7d32;
+  --lcd-bg:#c8cdb6; --lcd-fg:#20251a; --lcd-dim:#9aa08a;
+  --font-ui: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-lcd: ui-monospace,"Roboto Mono","DejaVu Sans Mono",Menlo,monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14171c; --surface:#1d2128; --fg:#e8eaed; --muted:#9aa1ab; --line:#2e333c;
+  --accent:#ffb020; --accent-fg:#1b1200; --danger:#ff6b60; --ok:#6fcf73;
+  --lcd-bg:#aeb49c; --lcd-fg:#1a1f15; --lcd-dim:#868c75; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#14171c; --surface:#1d2128; --fg:#e8eaed; --muted:#9aa1ab; --line:#2e333c;
+  --accent:#ffb020; --accent-fg:#1b1200; --danger:#ff6b60; --ok:#6fcf73;
+  --lcd-bg:#aeb49c; --lcd-fg:#1a1f15; --lcd-dim:#868c75; color-scheme:dark }
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font-ui);
+  padding:max(12px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+main{max-width:520px;margin:0 auto;display:grid;gap:16px}
+h1{font-size:1.15rem;margin:0;letter-spacing:.01em}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+header small{color:var(--muted)}
+.label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+
+/* Zählerdisplay */
+.meter{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+.lcd{background:var(--lcd-bg);color:var(--lcd-fg);border-radius:6px;padding:12px 14px;
+  font-family:var(--font-lcd);box-shadow:inset 0 2px 6px rgba(0,0,0,.25);min-width:0}
+.lcd .top{font-size:.75rem;color:var(--lcd-fg);opacity:.7;display:flex;justify-content:space-between;gap:8px}
+.lcd .main{font-size:1.9rem;line-height:1.2;letter-spacing:.06em;white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.lamp{width:64px;height:64px;border-radius:50%;border:2px solid var(--line);background:var(--surface);
+  display:grid;place-items:center;font-size:.7rem;color:var(--muted);transition:background .05s,box-shadow .05s}
+.lamp.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);box-shadow:0 0 28px var(--accent)}
+
+.status{min-height:1.5em;font-weight:600}
+.status.err{color:var(--danger)} .status.ok{color:var(--ok)}
+.progress{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.progress>div{height:100%;width:0;background:var(--accent);transition:width .2s linear}
+.meta{display:flex;justify-content:space-between;color:var(--muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+
+/* Formular */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:12px}
+.row{display:grid;gap:6px}
+input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);
+  border-radius:8px;padding:10px 12px;width:100%}
+#pin{font-family:var(--font-lcd);font-size:1.6rem;letter-spacing:.5em;text-align:center}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg label{border:1px solid var(--line);border-radius:8px;padding:10px;display:grid;gap:2px;cursor:pointer}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.seg b{font-size:.95rem} .seg span{font-size:.8rem;color:var(--muted)}
+.check{display:flex;gap:10px;align-items:flex-start}
+.check input{flex:none;width:20px;height:20px;margin-top:2px;accent-color:var(--accent)}
+.check span small{display:block;color:var(--muted)}
+
+.actions{display:grid;grid-template-columns:1fr auto;gap:8px}
+button{font:inherit;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);
+  padding:12px 16px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:700;font-size:1.15rem;padding:16px}
+button.stop{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:700}
+button:disabled{opacity:.45;cursor:not-allowed}
+
+/* Ablauf */
+ol.plan{margin:0;padding:0;list-style:none;display:grid;gap:4px;font-size:.9rem}
+ol.plan li{display:grid;grid-template-columns:1.2em 1fr auto;gap:8px;padding:4px 6px;border-radius:6px;color:var(--muted)}
+ol.plan li .n{font-variant-numeric:tabular-nums}
+ol.plan li.cur{background:var(--bg);color:var(--fg);font-weight:600}
+ol.plan li.done{color:var(--fg)}
+ol.plan li.done::before{content:""}
+ol.plan li .t{font-variant-numeric:tabular-nums;font-size:.8rem}
+
+details summary{cursor:pointer;font-weight:600}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:10px}
+.grid2 label{font-size:.82rem;color:var(--muted);display:grid;gap:4px}
+.note{font-size:.85rem;color:var(--muted)}
+.note b{color:var(--fg)}
+#log{font-family:var(--font-lcd);font-size:.75rem;color:var(--muted);max-height:9em;overflow:auto;white-space:pre-wrap;margin:0}
+video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>OpenWay PIN-Blinker</h1>
+    <small>Itron OpenWay 3.HZ · optische Taste</small>
+  </header>
+
+  <section class="meter" aria-live="polite">
+    <div class="lcd">
+      <div class="top"><span id="lcdPhase">bereit</span><span id="lcdStep"></span></div>
+      <div class="main" id="lcdMain">----</div>
+    </div>
+    <div class="lamp" id="lamp" aria-label="Taschenlampe">AUS</div>
+  </section>
+  <div class="status" id="status">PIN eingeben, Zählertyp wählen, Start.</div>
+  <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+  <div class="meta"><span id="metaLeft">Dauer: –</span><span id="metaRight"></span></div>
+
+  <div class="actions">
+    <button class="primary" id="startBtn">Start</button>
+    <button id="testBtn" title="3 kurze Blitze">Lampe testen</button>
+  </div>
+  <button class="stop" id="stopBtn" hidden>Abbrechen</button>
+
+  <section class="card">
+    <div class="row">
+      <label class="label" for="pin">Zähler-PIN</label>
+      <input id="pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="0000">
+    </div>
+    <div class="row">
+      <span class="label">Zählertyp (Symbol auf dem Zähler)</span>
+      <div class="seg">
+        <label><input type="radio" name="type" id="typeE" value="8"><b>Einrichtung</b><span>nur Bezug · 8 Schritte bis „Inf“</span></label>
+        <label><input type="radio" name="type" id="typeZ" value="13"><b>Zweirichtung</b><span>Bezug + Einspeisung (PV) · 13 Schritte</span></label>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="optInf" checked><span>„Inf On“ setzen<small>erweiterter Datensatz mit Momentanleistung für den IR-Lesekopf</small></span></label>
+    <label class="check"><input type="checkbox" id="optPinOff" checked><span>PIN-Schutz ausschalten<small>Werte danach ohne PIN abrufbar</small></span></label>
+    <label class="check"><input type="checkbox" id="optRemember" checked><span>PIN auf diesem Gerät merken</span></label>
+  </section>
+
+  <section class="card">
+    <span class="label">Ablauf</span>
+    <ol class="plan" id="plan"></ol>
+  </section>
+
+  <section class="card note">
+    <div><b>Vor dem Start:</b> Das Zählerdisplay muss im Ruhezustand sein, also ohne Hintergrundbeleuchtung (mindestens 2 Minuten nicht bedient). Sonst verschiebt sich die ganze Sequenz um einen Schritt.</div>
+    <div><b>Halten:</b> Blitz-LED (neben der Kamera) mit 1–2 cm Abstand vor die optische Taste oben rechts halten und nicht bewegen. Ein kurzes Stück Papprohr hilft beim Ausrichten und schirmt Umgebungslicht ab. Bildschirm nicht sperren und die App nicht verlassen.</div>
+    <div><b>Nur einmal ausführen:</b> Die langen Impulse <i>schalten um</i>. Ein zweiter Durchlauf würde „Inf“ wieder ausschalten. Bei ausgeschaltetem PIN-Schutz stimmt die Sequenz außerdem nicht mehr. Nur „PIN eingeben“ geht dann über das Abwählen beider Optionen.</div>
+  </section>
+
+  <details class="card">
+    <summary>Zeiten anpassen</summary>
+    <div class="grid2">
+      <label>Blitz kurz (ms)<input type="number" id="tOn" min="100" max="2000" step="50"></label>
+      <label>Pause zwischen Blitzen (ms)<input type="number" id="tOff" min="200" max="2500" step="50"></label>
+      <label>Pause nach Ziffer (ms, &gt; 3000)<input type="number" id="tDigit" min="3200" max="8000" step="100"></label>
+      <label>Langer Impuls (ms, &gt; 5000)<input type="number" id="tLong" min="5200" max="10000" step="100"></label>
+      <label>Pause nach Aufwecken (ms)<input type="number" id="tWake" min="500" max="5000" step="100"></label>
+      <label>Countdown vor Start (s)<input type="number" id="tCount" min="0" max="15" step="1"></label>
+    </div>
+    <p class="note">Bleibt eine Ziffer „hängen“ oder zählt sie zu wenig, „Blitz kurz“ und „Pause zwischen Blitzen“ erhöhen (z. B. 500/800). Die Lampe hat je nach Handy 50–200 ms Verzögerung, gemessen wird unten im Protokoll.</p>
+    <button id="resetBtn" type="button">Standardwerte</button>
+  </details>
+
+  <details class="card">
+    <summary>Protokoll</summary>
+    <pre id="log"></pre>
+  </details>
+</main>
+<video id="vid" muted playsinline></video>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const DEFAULTS = {tOn:400, tOff:600, tDigit:4000, tLong:6500, tWake:2000, tCount:5};
+const LS = 'openwayBlinker.v1';
+
+// ---------- Einstellungen ----------
+function load(){ try{ return JSON.parse(localStorage.getItem(LS)) || {}; }catch{ return {}; } }
+function save(){
+  const s = {
+    type: document.querySelector('input[name=type]:checked')?.value || '',
+    inf: $('optInf').checked, pinOff: $('optPinOff').checked, remember: $('optRemember').checked,
+    pin: $('optRemember').checked ? $('pin').value : '',
+    deviceId: state.deviceId || ''
+  };
+  for (const k in DEFAULTS) s[k] = num(k);
+  try{ localStorage.setItem(LS, JSON.stringify(s)); }catch{}
+}
+function num(k){ const v = parseInt($(k).value,10); return Number.isFinite(v) ? v : DEFAULTS[k]; }
+
+const state = { running:false, abort:false, track:null, stream:null, deviceId:'', wake:null, audio:null };
+const saved = load();
+for (const k in DEFAULTS) $(k).value = saved[k] ?? DEFAULTS[k];
+if (saved.pin) $('pin').value = saved.pin;
+if (saved.type) { const r = document.querySelector(`input[name=type][value="${saved.type}"]`); if (r) r.checked = true; }
+if (saved.inf === false) $('optInf').checked = false;
+if (saved.pinOff === false) $('optPinOff').checked = false;
+if (saved.remember === false) $('optRemember').checked = false;
+state.deviceId = saved.deviceId || '';
+
+// ---------- Sequenz ----------
+// Schritt: {k:'pulse'|'long'|'wait', ms, gap, phase, expect}
+function buildSequence(){
+  const pin = $('pin').value;
+  const n = parseInt(document.querySelector('input[name=type]:checked')?.value || '0', 10);
+  const T = {}; for (const k in DEFAULTS) T[k] = num(k);
+  const inf = $('optInf').checked, pinOff = $('optPinOff').checked;
+  const seq = [];
+  const short = (phase, expect, gap = T.tOff) => seq.push({k:'pulse', ms:T.tOn, gap, phase, expect});
+  const long  = (phase, expect) => seq.push({k:'long', ms:T.tLong, gap:1500, phase, expect});
+
+  short('Aufwecken', '8888', T.tWake);
+  short('PIN öffnen', 'Pin 0---', 1000);
+  for (let i = 0; i < 4; i++){
+    const d = +pin[i];
+    const done = pin.slice(0,i);
+    for (let c = 1; c <= d; c++){
+      const last = c === d;
+      short(`Ziffer ${i+1}`, 'Pin ' + done + c + '-'.repeat(3-i), last ? T.tDigit : T.tOff);
+    }
+    if (d === 0) seq.push({k:'wait', ms:T.tDigit, phase:`Ziffer ${i+1}`, expect:'Pin ' + done + '0' + '-'.repeat(3-i)});
+  }
+  if (inf || pinOff){
+    const steps = inf ? n : n + 1;
+    for (let i = 1; i <= steps; i++){
+      const atInf = i === n, atPin = i === n + 1;
+      const exp = atInf ? 'Inf OFF' : atPin ? 'Pin On' : `Menü ${i}/${n}`;
+      short(inf ? 'Zu „Inf“' : 'Zu „Pin“', exp, (i === steps) ? 1500 : T.tOff);
+    }
+    if (inf){
+      long('Inf umschalten', 'Inf On');
+      if (pinOff) short('Zu „Pin“', 'Pin On', 1500);
+    }
+    if (pinOff) long('PIN-Schutz aus', 'Pin OFF');
+    short('Abschluss', '…', 500);
+  }
+  return seq;
+}
+function seqDuration(seq){ return seq.reduce((a,s)=>a + s.ms + (s.gap||0), 0); }
+function fmt(ms){ const s = Math.round(ms/1000); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')} min`; }
+
+function phasesOf(seq){
+  const out = []; let t = 0;
+  for (const s of seq){
+    const last = out[out.length-1];
+    if (!last || last.phase !== s.phase) out.push({phase:s.phase, n:0, longs:0, start:t});
+    const cur = out[out.length-1];
+    if (s.k === 'pulse') cur.n++; if (s.k === 'long') cur.longs++;
+    t += s.ms + (s.gap||0);
+  }
+  return out;
+}
+function valid(){
+  const pinOk = /^\d{4}$/.test($('pin').value);
+  const typeOk = !!document.querySelector('input[name=type]:checked') || (!$('optInf').checked && !$('optPinOff').checked);
+  return {pinOk, typeOk, ok: pinOk && typeOk};
+}
+function renderPlan(){
+  const v = valid();
+  const plan = $('plan'); plan.textContent = '';
+  if (!v.ok){
+    $('metaLeft').textContent = 'Dauer: –';
+    const li = document.createElement('li');
+    li.innerHTML = '<span></span><span></span><span></span>';
+    li.children[1].textContent = !v.pinOk ? 'Vierstellige PIN eingeben.' : 'Zählertyp wählen.';
+    plan.append(li);
+    $('startBtn').disabled = true; return;
+  }
+  $('startBtn').disabled = state.running;
+  const seq = buildSequence();
+  phasesOf(seq).forEach((p,i) => {
+    const li = document.createElement('li'); li.dataset.phase = p.phase;
+    const desc = [p.n ? `${p.n}× kurz` : '', p.longs ? `${p.longs}× lang` : ''].filter(Boolean).join(' + ') || 'warten (Ziffer 0)';
+    li.innerHTML = '<span class="n"></span><span></span><span class="t"></span>';
+    li.children[0].textContent = i+1;
+    li.children[1].textContent = `${p.phase} · ${desc}`;
+    li.children[2].textContent = fmt(p.start).replace(' min','');
+    plan.append(li);
+  });
+  $('metaLeft').textContent = 'Dauer: ' + fmt(seqDuration(seq) + num('tCount')*1000);
+}
+
+// ---------- Taschenlampe ----------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function log(msg){ const el = $('log'); el.textContent += new Date().toLocaleTimeString() + '  ' + msg + '\n'; el.scrollTop = el.scrollHeight; }
+
+async function tryDevice(constraints){
+  const stream = await navigator.mediaDevices.getUserMedia({audio:false, video:constraints});
+  const track = stream.getVideoTracks()[0];
+  const vid = $('vid'); vid.srcObject = stream; try{ await vid.play(); }catch{}
+  await sleep(400);
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (caps.torch) return {stream, track};
+  stream.getTracks().forEach(t => t.stop());
+  return null;
+}
+async function acquireTorch(){
+  if (state.track && state.track.readyState === 'live') return;
+  if (!window.isSecureContext) throw new Error('Seite muss über HTTPS geöffnet werden, sonst gibt Chrome die Kamera nicht frei.');
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('Browser unterstützt keinen Kamerazugriff. Bitte Chrome auf Android nutzen.');
+  let got = null;
+  if (state.deviceId){ try{ got = await tryDevice({deviceId:{exact:state.deviceId}}); }catch{} }
+  if (!got) got = await tryDevice({facingMode:{ideal:'environment'}});
+  if (!got){
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    for (const d of devs){ try{ got = await tryDevice({deviceId:{exact:d.deviceId}}); }catch{} if (got) break; }
+  }
+  if (!got) throw new Error('Keine Kamera mit steuerbarer Taschenlampe gefunden. Andere Kamera-Apps schließen und Chrome verwenden.');
+  state.stream = got.stream; state.track = got.track;
+  state.deviceId = got.track.getSettings().deviceId || '';
+  save();
+  log('Lampe bereit: ' + (got.track.label || 'Rückkamera'));
+}
+let latSum = 0, latN = 0;
+async function torch(on){
+  const t0 = performance.now();
+  await state.track.applyConstraints({advanced:[{torch:on}]});
+  const dt = performance.now() - t0;
+  latSum += dt; latN++;
+  const lamp = $('lamp'); lamp.classList.toggle('on', on); lamp.textContent = on ? 'AN' : 'AUS';
+  return dt;
+}
+function releaseTorch(){
+  try{ state.track && state.track.applyConstraints({advanced:[{torch:false}]}); }catch{}
+  if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+  state.stream = null; state.track = null;
+  $('lamp').classList.remove('on'); $('lamp').textContent = 'AUS';
+}
+// Warten bis zu einem absoluten Zeitpunkt, abbrechbar
+async function until(t){
+  while (true){
+    if (state.abort) throw new Error('abort');
+    const left = t - performance.now();
+    if (left <= 0) return;
+    await sleep(Math.min(left, 50));
+  }
+}
+// Ein Impuls: Lampe an, ms halten, Lampe aus. Latenz wird von der Haltezeit abgezogen.
+async function pulse(ms){
+  const t0 = performance.now();
+  await torch(true);
+  await until(t0 + ms);
+  await torch(false);
+}
+
+// ---------- Rückmeldung ----------
+function beep(freq = 880, dur = 0.08){
+  try{
+    state.audio = state.audio || new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = state.audio, o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = freq; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + dur);
+  }catch{}
+}
+function vibrate(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch{} }
+async function wakeOn(){ try{ state.wake = await navigator.wakeLock?.request('screen'); }catch{} }
+function wakeOff(){ try{ state.wake && state.wake.release(); }catch{} state.wake = null; }
+
+function setStatus(text, cls=''){ const s = $('status'); s.textContent = text; s.className = 'status ' + cls; }
+function lcd(main, phase='', step=''){ $('lcdMain').textContent = main; $('lcdPhase').textContent = phase; $('lcdStep').textContent = step; }
+function markPhase(name){
+  let passed = true;
+  for (const li of $('plan').children){
+    if (li.dataset.phase === name){ li.className = 'cur'; passed = false; }
+    else li.className = passed ? 'done' : '';
+  }
+}
+
+// ---------- Ablauf ----------
+async function run(){
+  if (state.running) return;
+  const v = valid(); if (!v.ok) return;
+  save();
+  const seq = buildSequence();
+  state.running = true; state.abort = false; latSum = 0; latN = 0;
+  $('startBtn').hidden = true; $('testBtn').hidden = true; $('stopBtn').hidden = false;
+  try{
+    beep(1, 0.01); // AudioContext im Klick entsperren
+    setStatus('Kamera wird geöffnet …');
+    await acquireTorch();
+    await wakeOn();
+    const total = seqDuration(seq);
+    // Countdown zum Ansetzen
+    for (let c = num('tCount'); c > 0; c--){
+      if (state.abort) throw new Error('abort');
+      setStatus(`Handy ansetzen … ${c}`); lcd('----', 'Countdown', `${c} s`);
+      beep(660); vibrate(60); await sleep(1000);
+    }
+    beep(1320, 0.15); vibrate(200);
+    let t = performance.now(); const tStart = t;
+    for (let i = 0; i < seq.length; i++){
+      const s = seq[i];
+      markPhase(s.phase);
+      setStatus(s.phase + (s.k === 'long' ? ' · lang halten' : s.k === 'wait' ? ' · warten' : ''));
+      $('metaRight').textContent = `Schritt ${i+1}/${seq.length}`;
+      if (s.k === 'wait'){ lcd(s.expect, s.phase, 'Ziffer 0'); await until(t + s.ms); t += s.ms; }
+      else {
+        await until(t);
+        if (s.k === 'long') lcd(s.expect.replace(/On$|OFF$/, '…'), s.phase, 'lang');
+        await pulse(s.ms);
+        lcd(s.expect, s.phase, s.k === 'long' ? 'umgeschaltet' : '');
+        t += s.ms + s.gap;
+      }
+      $('bar').style.width = (100 * (performance.now() - tStart) / total).toFixed(1) + '%';
+    }
+    await until(t);
+    $('bar').style.width = '100%';
+    markPhase('__fertig__');
+    const lat = latN ? Math.round(latSum/latN) : 0;
+    log(`Fertig. Mittlere Schaltlatenz der Lampe: ${lat} ms`);
+    const what = [$('optInf').checked && '„Inf On“', $('optPinOff').checked && '„Pin OFF“'].filter(Boolean).join(' und ');
+    setStatus(what ? `Fertig. Display bzw. Lesekopf prüfen: ${what} sollte gesetzt sein.` : 'PIN eingegeben. Werte jetzt per optischer Taste abrufbar.', 'ok');
+    beep(990, .12); setTimeout(()=>beep(1320,.18),160); vibrate([100,80,100]);
+  }catch(e){
+    if (e.message === 'abort'){ setStatus('Abgebrochen. Mindestens 2 Minuten warten, bis das Display aus ist, dann neu starten.', 'err'); log('Abgebrochen'); }
+    else { setStatus(e.message || String(e), 'err'); log('Fehler: ' + (e.message || e)); }
+  }finally{
+    releaseTorch(); wakeOff();
+    state.running = false;
+    $('startBtn').hidden = false; $('testBtn').hidden = false; $('stopBtn').hidden = true;
+    renderPlan();
+  }
+}
+
+async function test(){
+  if (state.running) return;
+  state.running = true; state.abort = false; latSum = 0; latN = 0;
+  $('startBtn').disabled = true; $('testBtn').disabled = true;
+  try{
+    setStatus('Kamera wird geöffnet …');
+    await acquireTorch();
+    setStatus('Test: 3 kurze Blitze');
+    let t = performance.now();
+    for (let i = 0; i < 3; i++){ await until(t); await pulse(num('tOn')); t += num('tOn') + num('tOff'); }
+    await until(t);
+    const lat = Math.round(latSum/latN);
+    log(`Test ok, mittlere Schaltlatenz ${lat} ms`);
+    setStatus(`Lampe funktioniert (Latenz ≈ ${lat} ms).`, 'ok');
+  }catch(e){ setStatus(e.message || String(e), 'err'); log('Fehler: ' + (e.message || e)); }
+  finally{ releaseTorch(); state.running = false; $('testBtn').disabled = false; renderPlan(); }
+}
+
+// App verlassen = Timer unzuverlässig → abbrechen
+document.addEventListener('visibilitychange', () => { if (document.hidden && state.running) state.abort = true; });
+
+$('startBtn').addEventListener('click', run);
+$('testBtn').addEventListener('click', test);
+$('stopBtn').addEventListener('click', () => { state.abort = true; });
+$('resetBtn').addEventListener('click', () => { for (const k in DEFAULTS) $(k).value = DEFAULTS[k]; save(); renderPlan(); });
+$('pin').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g,'').slice(0,4); save(); renderPlan(); });
+document.querySelectorAll('input').forEach(el => { if (el.id !== 'pin') el.addEventListener('change', () => { save(); renderPlan(); }); });
+
+renderPlan();
+log(window.isSecureContext ? 'Sichere Verbindung: Kamera nutzbar.' : 'Achtung: keine HTTPS-Verbindung – Taschenlampe nicht steuerbar.');
+})();
+</script>
+</body>
+</html>
